@@ -145,6 +145,15 @@ int main() {
     PVAL(std::get<1>(ftuf["3"][1]).begin()->at(1));
     PVAL((++std::get<1>(ftuf["3"][1]).begin())->at(0));
     PVAL((++std::get<1>(ftuf["3"][1]).begin())->at(1));
+
   }
+  cout << endl;
+  int a = 18;
+  append_buf(buf, a);
+  cout << "buf size: " << buf.size() << endl;
+  for (size_t i = 0; i < buf.size(); i++) {
+    printf("%02x ", (unsigned char)buf[i]);
+  }
+  cout << endl;
   return 0;
 }
