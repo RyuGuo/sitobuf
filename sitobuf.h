@@ -106,13 +106,16 @@ class helper {
 
  public:
   template <typename T>
-  static size_t __always_inline __build_size(T &t) {
+  static size_t __always_inline __build_size_type(T &t) {
     return __build_size_type_helper<T>()(t);
   }
 
-  template <typename T, typename... Rest>
-  static size_t __always_inline __build_size(T &t, Rest &...rest) {
-    return __build_size_type_helper<T>()(t) + __build_size(rest...);
+  template <typename... Rest>
+  static size_t __always_inline __build_size(Rest &...rest) {
+    size_t sv[] = {__build_size_type(rest)...};
+    size_t s = 0;
+    for (size_t i = 0; i < sizeof...(Rest); ++i) s += sv[i];
+    return s;
   }
 
  private:
@@ -210,15 +213,16 @@ class helper {
 
  public:
   template <typename T>
-  static void __always_inline __build_buf(std::string &buf, T &t) {
+  static uint8_t __always_inline __build_buf_type(std::string &buf, T &t) {
     __build_buf_type_helper<T>()(buf, t);
+    return 0;
   }
 
-  template <typename T, typename... Rest>
-  static void __always_inline __build_buf(std::string &buf, T &t,
-                                          Rest &...rest) {
-    __build_buf_type_helper<T>()(buf, t);
-    __build_buf(buf, rest...);
+  template <typename... Rest>
+  static void __always_inline __build_buf(std::string &buf, Rest &...rest) {
+    // dummy array
+    // exec order: left to right
+    uint8_t _[] = {__build_buf_type(buf, rest)...};
   }
 
  private:
@@ -348,16 +352,20 @@ class helper {
 
  public:
   template <typename T>
-  static void __always_inline __parse_buf(std::string &buf, const size_t i,
-                                          T *t) {
-    __parse_buf_helper<T>()(buf, i, t);
+  static uint8_t __always_inline __parse_buf_type(std::string &buf, size_t &i,
+                                                  T *t) {
+    size_t s = __parse_buf_helper<T>()(buf, i, t);
+    i += s;
+    return 0;
   }
 
-  template <typename T, typename... Rest>
+  template <typename... Rest>
   static void __always_inline __parse_buf(std::string &buf, const size_t i,
-                                          T *t, Rest *...rest) {
-    size_t s = __parse_buf_helper<T>()(buf, i, t);
-    __parse_buf(buf, i + s, rest...);
+                                          Rest *...rest) {
+    size_t _i = i;
+    // dummy array
+    // exec order: left to right
+    uint8_t _[] = {__parse_buf_type(buf, _i, rest)...};
   }
 };
 
