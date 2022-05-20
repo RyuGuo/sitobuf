@@ -47,16 +47,17 @@ int main() {
         {"3",
          {{3, {{"3", "33"}, {"33", "333"}}},
           {4, {{"4", "44"}, {"44", "444"}}}}}};
-    buf = build_buf(4, 7.0, a, s, v, sv, vv, *b, vector<int>{1, 2, 3}, t, p, m,
-                    ss, l, tuf);
+    // pack parameters
+    buf = build_buf("1"s, 4, 7.0, a, s, v, sv, vv, *b, vector<int>{1, 2, 3}, t,
+                    p, m, ss, l, tuf);
     cout << "buf size: " << buf.size() << endl;
     for (size_t i = 0; i < buf.size(); i++) {
       printf("%02x ", (unsigned char)buf[i]);
     }
     cout << endl;
-    cout << endl;
   }
   if (1) {
+    string fans;
     int f4;
     double f7;
     struct {
@@ -79,8 +80,10 @@ int main() {
     unordered_set<string> fss;
     list<int> fl;
     map<string, vector<tuple<int, list<vector<string>>>>> ftuf;
-    parse_buf(buf, &f4, &f7, &fa, &fs, &fv, &fsv, &fvv, fb, &fanv, &ft, &fp,
-              &fm, &fss, &fl, &ftuf);
+    // parse from buffer string
+    sitobuf::inner_string str(buf);
+    parse_buf(str, &fans, &f4, &f7, &fa, &fs, &fv, &fsv, &fvv, fb, &fanv, &ft,
+              &fp, &fm, &fss, &fl, &ftuf);
 #define PVAL(name) cout << #name ": " << name << endl
     PVAL(f4);
     PVAL(f7);
@@ -145,15 +148,67 @@ int main() {
     PVAL(std::get<1>(ftuf["3"][1]).begin()->at(1));
     PVAL((++std::get<1>(ftuf["3"][1]).begin())->at(0));
     PVAL((++std::get<1>(ftuf["3"][1]).begin())->at(1));
+    cout << endl;
+  }
+  if (1) {
+    string fans;
+    int f4;
+    double f7;
+    struct {
+      int a;
+      int b;
+    } fa;
+    string fs;
+    vector<int> fv;
+    vector<string> fsv;
+    vector<vector<int>> fvv;
+    struct : public burst_struct {
+      int a;
+      int b;
+      char d[0];
+    } *fb = (decltype(fb))malloc(sizeof(*fb) + 6);
+    vector<int> fanv;
+    tuple<int, double, string, vector<int>> ft;
+    pair<int, string> fp;
+    map<int, string> fm;
+    unordered_set<string> fss;
+    list<int> fl;
+    map<string, vector<tuple<int, list<vector<string>>>>> ftuf;
+    // parse from buffer pointer
+    char *_buf = (char *)malloc(buf.size());
+    memcpy(_buf, buf.data(), buf.size());
+    sitobuf::inner_string str(_buf, buf.size(), buf.size());
+    parse_buf(str, &fans, &f4, &f7, &fa, &fs, &fv, &fsv, &fvv, fb, &fanv, &ft,
+              &fp, &fm, &fss, &fl, &ftuf);
+    free(_buf);
+  }
 
+  {
+    int a = 9;
+    string s = "hello world";
+    // pack parameters to user-defined area
+    size_t buf_size = build_size(a, s);
+    char *_buf = (char *)malloc(buf_size);
+    inner_string buf(_buf, buf_size);
+    build_buf(buf, a, s);
+    cout << "buf size: " << buf.size() << endl;
+    for (size_t i = 0; i < buf.size(); i++) {
+      printf("%02x ", (unsigned char)_buf[i]);
+    }
+    cout << endl;
+    cout << endl;
+    int b = 18;
+    size_t _buf_size = build_size(a, s, b);
+    _buf = (char *)realloc(_buf, _buf_size);
+    buf = inner_string(_buf, _buf_size, buf_size);
+    append_buf(buf, b);
+    cout << "buf size: " << buf.size() << endl;
+    for (size_t i = 0; i < buf.size(); i++) {
+      printf("%02x ", (unsigned char)_buf[i]);
+    }
+    cout << endl;
+    free(_buf);
   }
-  cout << endl;
-  int a = 18;
-  append_buf(buf, a);
-  cout << "buf size: " << buf.size() << endl;
-  for (size_t i = 0; i < buf.size(); i++) {
-    printf("%02x ", (unsigned char)buf[i]);
-  }
-  cout << endl;
+
   return 0;
 }
