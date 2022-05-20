@@ -13,16 +13,103 @@
 
 namespace sitobuf {
 
+class inner_string {
+  bool type;  // true: std::string, false: char* buf
+  union {
+    struct {
+      char *_buf;
+      size_t _capacity;
+      size_t _size;
+    };
+    std::string *s;
+  };
+
+ public:
+  inner_string(char *buf, size_t n, size_t l = 0)
+      : type(false), _buf(buf), _capacity(n), _size(l) {}
+  inner_string(std::string &_s) : type(true), s(&_s) {}
+  inner_string &operator=(const inner_string &_s) {
+    type = _s.type;
+    if (type)
+      s = _s.s;
+    else {
+      _buf = _s._buf;
+      _capacity = _s._capacity;
+      _size = _s._size;
+    }
+    return *this;
+  }
+  size_t capacity() { return type ? s->capacity() : _capacity; }
+  size_t size() const { return type ? s->size() : _size; }
+  const char *data() const { return type ? s->data() : _buf; }
+  void resize(size_t n) {
+    if (type)
+      s->resize(n);
+    else {
+      if (n > _capacity) throw "resize over capacity";
+      _size = n;
+    }
+  }
+  void reserve(size_t n) {
+    if (type)
+      s->reserve(n);
+    else {
+      if (n > _capacity) throw "reserve over capacity";
+    }
+  }
+  inner_string &append(const char *_s, size_t _n) {
+    if (type)
+      s->append(_s, _n);
+    else {
+      memcpy(_buf + _size, _s, _n);
+      _size += _n;
+    }
+    return *this;
+  }
+  inner_string &append(const inner_string &_s, size_t n) {
+    if (type) {
+      if (_s.type)
+        s->append((*_s.s).data(), n);
+      else
+        s->append(_s._buf, _s._size, n);
+    } else {
+      if (_s.type)
+        memcpy(_buf + _size, _s.s->data(), n);
+      else
+        memcpy(_buf + _size, _s._buf, n);
+      _size += n;
+    }
+    return *this;
+  }
+  inner_string &append(const inner_string &_s) { return append(_s, _s.size()); }
+  inner_string &replace(size_t pos, size_t l1, const char *_s, size_t l2) {
+    if (type)
+      s->replace(pos, l1, _s, l2);
+    else {
+      if (l1 == l2) {
+        memcpy(_buf + pos, _s, l2);
+      } else {
+        if (_size + l2 - l1 > _capacity) throw "replace over capacity";
+        memmove(_buf + pos + l2, _buf + pos + l1, _size - pos - l1);
+        memcpy(_buf + pos, _s, l2);
+        _size -= l1 - l2;
+      }
+    }
+    return *this;
+  }
+};
+
 struct burst_struct {
   uint32_t data_len;
 };
 
 class helper {
+ public:
  private:
   template <size_t N>
   struct __tuple_size_helper {
     template <typename... P>
-    size_t __always_inline operator()(std::tuple<P...> &t) {
+    __always_inline size_t operator()(std::tuple<P...> &t) {
       return __build_size_type_helper<decltype(std::get<N - 1>(t))>()(
                  std::get<N - 1>(t)) +
              __tuple_size_helper<N - 1>()(t);
@@ -31,14 +118,14 @@ class helper {
   template <typename T, typename Enable = void>
   struct __build_size_type_helper {
     template <typename _Tp>
-    constexpr size_t __always_inline operator()(_Tp &t) {
+    constexpr __always_inline size_t operator()(_Tp &t) {
       return sizeof(_Tp);
     }
-    size_t __always_inline operator()(std::string &t) {
+    __always_inline size_t operator()(std::string &t) {
       return sizeof(uint32_t) + t.size();
     }
     template <typename _Tp>
-    size_t __always_inline operator()(std::vector<_Tp> &t) {
+    __always_inline size_t operator()(std::vector<_Tp> &t) {
       size_t s = sizeof(uint32_t);
       for (size_t i = 0; i < t.size(); ++i) {
         s += __build_size_type_helper<_Tp>()(t[i]);
@@ -46,7 +133,7 @@ class helper {
       return s;
     }
     template <typename K, typename V>
-    size_t __always_inline operator()(std::map<K, V> &t) {
+    __always_inline size_t operator()(std::map<K, V> &t) {
       size_t s = sizeof(uint32_t);
       for (auto it : t) {
         s += __build_size_type_helper<K>()((K &)it.first);
@@ -55,7 +142,7 @@ class helper {
       return s;
     }
     template <typename K, typename V>
-    size_t __always_inline operator()(std::unordered_map<K, V> &t) {
+    __always_inline size_t operator()(std::unordered_map<K, V> &t) {
       size_t s = sizeof(uint32_t);
       for (auto it : t) {
         s += __build_size_type_helper<K>()((K &)it.first);
@@ -64,7 +151,7 @@ class helper {
       return s;
     }
     template <typename _Tp>
-    size_t __always_inline operator()(std::list<_Tp> &t) {
+    __always_inline size_t operator()(std::list<_Tp> &t) {
       size_t s = sizeof(uint32_t);
       for (auto it : t) {
         s += __build_size_type_helper<_Tp>()(it);
@@ -72,7 +159,7 @@ class helper {
       return s;
     }
     template <typename _Tp>
-    size_t __always_inline operator()(std::set<_Tp> &t) {
+    __always_inline size_t operator()(std::set<_Tp> &t) {
       size_t s = sizeof(uint32_t);
       for (auto it : t) {
         s += __build_size_type_helper<_Tp>()(it);
@@ -80,7 +167,7 @@ class helper {
       return s;
     }
     template <typename _Tp>
-    size_t __always_inline operator()(std::unordered_set<_Tp> &t) {
+    __always_inline size_t operator()(std::unordered_set<_Tp> &t) {
       size_t s = sizeof(uint32_t);
       for (auto it : t) {
         s += __build_size_type_helper<_Tp>()(it);
@@ -88,12 +175,12 @@ class helper {
       return s;
     }
     template <typename P1, typename P2>
-    size_t __always_inline operator()(std::pair<P1, P2> &t) {
+    __always_inline size_t operator()(std::pair<P1, P2> &t) {
       return __build_size_type_helper<P1>()(t.first) +
              __build_size_type_helper<P2>()(t.second);
     }
     template <typename... P>
-    size_t __always_inline operator()(std::tuple<P...> &t) {
+    __always_inline size_t operator()(std::tuple<P...> &t) {
       return __tuple_size_helper<sizeof...(P)>()(t);
     }
   };
@@ -101,17 +188,17 @@ class helper {
   struct __build_size_type_helper<
       T,
       typename std::enable_if<std::is_base_of<burst_struct, T>::value>::type> {
-    size_t __always_inline operator()(T &t) { return sizeof(T) + t.data_len; }
+    __always_inline size_t operator()(T &t) { return sizeof(T) + t.data_len; }
   };
 
  public:
   template <typename T>
-  static size_t __always_inline __build_size_type(T &t) {
+  static __always_inline size_t __build_size_type(T &t) {
     return __build_size_type_helper<T>()(t);
   }
 
   template <typename... Rest>
-  static size_t __always_inline __build_size(Rest &...rest) {
+  static __always_inline size_t __build_size(Rest &...rest) {
     size_t sv[] = {__build_size_type(rest)...};
     size_t s = 0;
     for (size_t i = 0; i < sizeof...(Rest); ++i) s += sv[i];
@@ -122,7 +209,7 @@ class helper {
   template <size_t N>
   struct __tuple_build_helper {
     template <typename... P>
-    void __always_inline operator()(std::string &buf, std::tuple<P...> &t) {
+    __always_inline void operator()(inner_string &buf, std::tuple<P...> &t) {
       __tuple_build_helper<N - 1>()(buf, t);
       __build_buf_type_helper<decltype(std::get<N - 1>(t))>()(
           buf, std::get<N - 1>(t));
@@ -131,16 +218,16 @@ class helper {
   template <typename T, typename Enable = void>
   struct __build_buf_type_helper {
     template <typename _Tp>
-    void __always_inline operator()(std::string &buf, _Tp &t) {
+    __always_inline void operator()(inner_string &buf, _Tp &t) {
       buf.append(reinterpret_cast<const char *>(&t), sizeof(_Tp));
     }
-    void __always_inline operator()(std::string &buf, std::string &t) {
+    __always_inline void operator()(inner_string &buf, std::string &t) {
       uint32_t s = (uint32_t)t.size();
       buf.append(reinterpret_cast<char *>(&s), sizeof(uint32_t));
       buf.append(t);
     }
     template <typename _Tp>
-    void __always_inline operator()(std::string &buf, std::vector<_Tp> &t) {
+    __always_inline void operator()(inner_string &buf, std::vector<_Tp> &t) {
       uint32_t s = (uint32_t)t.size();
       buf.append(reinterpret_cast<char *>(&s), sizeof(uint32_t));
       for (size_t i = 0; i < t.size(); ++i) {
@@ -148,7 +235,7 @@ class helper {
       }
     }
     template <typename K, typename V>
-    void __always_inline operator()(std::string &buf, std::map<K, V> &t) {
+    __always_inline void operator()(inner_string &buf, std::map<K, V> &t) {
       uint32_t s = (uint32_t)t.size();
       buf.append(reinterpret_cast<char *>(&s), sizeof(uint32_t));
       for (auto it : t) {
@@ -157,7 +244,7 @@ class helper {
       }
     }
     template <typename K, typename V>
-    void __always_inline operator()(std::string &buf,
+    __always_inline void operator()(inner_string &buf,
                                     std::unordered_map<K, V> &t) {
       uint32_t s = (uint32_t)t.size();
       buf.append(reinterpret_cast<char *>(&s), sizeof(uint32_t));
@@ -167,7 +254,7 @@ class helper {
       }
     }
     template <typename _Tp>
-    void __always_inline operator()(std::string &buf, std::list<_Tp> &t) {
+    __always_inline void operator()(inner_string &buf, std::list<_Tp> &t) {
       uint32_t s = (uint32_t)t.size();
       buf.append(reinterpret_cast<char *>(&s), sizeof(uint32_t));
       for (auto it : t) {
@@ -175,7 +262,7 @@ class helper {
       }
     }
     template <typename _Tp>
-    void __always_inline operator()(std::string &buf, std::set<_Tp> &t) {
+    __always_inline void operator()(inner_string &buf, std::set<_Tp> &t) {
       uint32_t s = (uint32_t)t.size();
       buf.append(reinterpret_cast<char *>(&s), sizeof(uint32_t));
       for (auto it : t) {
@@ -183,7 +270,7 @@ class helper {
       }
     }
     template <typename _Tp>
-    void __always_inline operator()(std::string &buf,
+    __always_inline void operator()(inner_string &buf,
                                     std::unordered_set<_Tp> &t) {
       uint32_t s = (uint32_t)t.size();
       buf.append(reinterpret_cast<char *>(&s), sizeof(uint32_t));
@@ -192,12 +279,12 @@ class helper {
       }
     }
     template <typename P1, typename P2>
-    void __always_inline operator()(std::string &buf, std::pair<P1, P2> &t) {
+    __always_inline void operator()(inner_string &buf, std::pair<P1, P2> &t) {
       __build_buf_type_helper<P1>()(buf, t.first);
       __build_buf_type_helper<P2>()(buf, t.second);
     }
     template <typename... P>
-    void __always_inline operator()(std::string &buf, std::tuple<P...> &t) {
+    __always_inline void operator()(inner_string &buf, std::tuple<P...> &t) {
       __tuple_build_helper<sizeof...(P)>()(buf, t);
     }
   };
@@ -206,20 +293,20 @@ class helper {
   struct __build_buf_type_helper<
       T,
       typename std::enable_if<std::is_base_of<burst_struct, T>::value>::type> {
-    void __always_inline operator()(std::string &buf, T &t) {
+    __always_inline void operator()(inner_string &buf, T &t) {
       buf.append(reinterpret_cast<const char *>(&t), sizeof(T) + t.data_len);
     }
   };
 
  public:
   template <typename T>
-  static uint8_t __always_inline __build_buf_type(std::string &buf, T &t) {
+  static __always_inline uint8_t __build_buf_type(inner_string &buf, T &t) {
     __build_buf_type_helper<T>()(buf, t);
     return 0;
   }
 
   template <typename... Rest>
-  static void __always_inline __build_buf(std::string &buf, Rest &...rest) {
+  static __always_inline void __build_buf(inner_string &buf, Rest &...rest) {
     // dummy array
     // exec order: left to right
     uint8_t _[] = {__build_buf_type(buf, rest)...};
@@ -229,7 +316,7 @@ class helper {
   template <size_t N>
   struct __tuple_parse_helper {
     template <typename... P>
-    size_t __always_inline operator()(std::string &buf, const size_t i,
+    __always_inline size_t operator()(inner_string &buf, const size_t i,
                                       std::tuple<P...> *t) {
       size_t s = __tuple_parse_helper<N - 1>()(buf, i, t);
       return s + __parse_buf_helper<typename std::remove_reference<
@@ -240,13 +327,13 @@ class helper {
   template <typename T, typename Enable = void>
   struct __parse_buf_helper {
     template <typename _Tp>
-    size_t __always_inline operator()(std::string &buf, const size_t i,
+    __always_inline size_t operator()(inner_string &buf, const size_t i,
                                       _Tp *t) {
       if (buf.size() < i + sizeof(_Tp)) throw "parse type error";
       *t = *reinterpret_cast<const _Tp *>(buf.data() + i);
       return sizeof(_Tp);
     }
-    size_t __always_inline operator()(std::string &buf, const size_t i,
+    __always_inline size_t operator()(inner_string &buf, const size_t i,
                                       std::string *t) {
       uint32_t s = *reinterpret_cast<const uint32_t *>(buf.data() + i);
       if (buf.size() < i + s + sizeof(uint32_t)) throw "parse string error";
@@ -254,7 +341,7 @@ class helper {
       return s + sizeof(uint32_t);
     }
     template <typename _Tp>
-    size_t __always_inline operator()(std::string &buf, const size_t i,
+    __always_inline size_t operator()(inner_string &buf, const size_t i,
                                       std::vector<_Tp> *t) {
       size_t ss = sizeof(uint32_t);
       if (buf.size() < i + sizeof(uint32_t)) throw "parse vector error";
@@ -266,7 +353,7 @@ class helper {
       return ss;
     }
     template <typename K, typename V>
-    size_t __always_inline operator()(std::string &buf, const size_t i,
+    __always_inline size_t operator()(inner_string &buf, const size_t i,
                                       std::map<K, V> *t) {
       size_t ss = sizeof(uint32_t);
       if (buf.size() < i + sizeof(uint32_t)) throw "parse map error";
@@ -281,7 +368,7 @@ class helper {
       return ss;
     }
     template <typename _Tp>
-    size_t __always_inline operator()(std::string &buf, const size_t i,
+    __always_inline size_t operator()(inner_string &buf, const size_t i,
                                       std::list<_Tp> *t) {
       size_t ss = sizeof(uint32_t);
       if (buf.size() < i + sizeof(uint32_t)) throw "parse list error";
@@ -294,7 +381,7 @@ class helper {
       return ss;
     }
     template <typename _Tp>
-    size_t __always_inline operator()(std::string &buf, const size_t i,
+    __always_inline size_t operator()(inner_string &buf, const size_t i,
                                       std::set<_Tp> *t) {
       size_t ss = sizeof(uint32_t);
       if (buf.size() < i + sizeof(uint32_t)) throw "parse set error";
@@ -307,7 +394,7 @@ class helper {
       return ss;
     }
     template <typename _Tp>
-    size_t __always_inline operator()(std::string &buf, const size_t i,
+    __always_inline size_t operator()(inner_string &buf, const size_t i,
                                       std::unordered_set<_Tp> *t) {
       size_t ss = sizeof(uint32_t);
       if (buf.size() < i + sizeof(uint32_t)) throw "parse unordered_set error";
@@ -320,14 +407,14 @@ class helper {
       return ss;
     }
     template <typename P1, typename P2>
-    size_t __always_inline operator()(std::string &buf, const size_t i,
+    __always_inline size_t operator()(inner_string &buf, const size_t i,
                                       std::pair<P1, P2> *t) {
       size_t p1s = __parse_buf_helper<P1>()(buf, i, &t->first);
       size_t p2s = __parse_buf_helper<P2>()(buf, i + p1s, &t->second);
       return p1s + p2s;
     }
     template <typename... P>
-    size_t __always_inline operator()(std::string &buf, const size_t i,
+    __always_inline size_t operator()(inner_string &buf, const size_t i,
                                       std::tuple<P...> *t) {
       return __tuple_parse_helper<sizeof...(P)>()(buf, i, t);
     }
@@ -337,7 +424,7 @@ class helper {
   struct __parse_buf_helper<
       T,
       typename std::enable_if<std::is_base_of<burst_struct, T>::value>::type> {
-    size_t __always_inline operator()(std::string &buf, const size_t i, T *t) {
+    __always_inline size_t operator()(inner_string &buf, const size_t i, T *t) {
       // offsetof will cause warning
       if (buf.size() <
           i + sizeof(uint32_t) + ((uintptr_t)&t->data_len - (uintptr_t)t))
@@ -352,7 +439,7 @@ class helper {
 
  public:
   template <typename T>
-  static uint8_t __always_inline __parse_buf_type(std::string &buf, size_t &i,
+  static __always_inline uint8_t __parse_buf_type(inner_string &buf, size_t &i,
                                                   T *t) {
     size_t s = __parse_buf_helper<T>()(buf, i, t);
     i += s;
@@ -360,7 +447,7 @@ class helper {
   }
 
   template <typename... Rest>
-  static void __always_inline __parse_buf(std::string &buf, const size_t i,
+  static __always_inline void __parse_buf(inner_string &buf, const size_t i,
                                           Rest *...rest) {
     size_t _i = i;
     // dummy array
@@ -372,25 +459,38 @@ class helper {
 template <>
 struct helper::__tuple_size_helper<0> {
   template <typename... P>
-  size_t __always_inline operator()(std::tuple<P...> &t) {
+  __always_inline size_t operator()(std::tuple<P...> &t) {
     return 0;
   }
 };
 template <>
 struct helper::__tuple_build_helper<0> {
   template <typename... P>
-  void __always_inline operator()(std::string &buf, std::tuple<P...> &t) {}
+  __always_inline void operator()(inner_string &buf, std::tuple<P...> &t) {}
 };
 template <>
 struct helper::__tuple_parse_helper<0> {
   template <typename... P>
-  size_t __always_inline operator()(std::string &buf, const size_t i,
+  __always_inline size_t operator()(inner_string &buf, const size_t i,
                                     std::tuple<P...> *t) {
     return 0;
   }
 };
 
 const uint16_t magic_number = 0x5c29;
+
+/**
+ * Get sitobuf size according to parameters.
+ * Use this to alloc memory area for buffer.
+ *
+ * @param args... parameters to pack.
+ *
+ * @return sitobuf size
+ */
+template <typename... Args>
+__always_inline size_t build_size(Args &&...args) {
+  return sizeof(uint16_t) + sizeof(uint16_t) + helper::__build_size(args...);
+}
 
 /**
  * Build a sitobuf.
@@ -405,7 +505,30 @@ std::string __always_inline build_buf(Args &&...args) {
   size_t buf_size = helper::__build_size(args...);
   uint16_t argc = sizeof...(Args);
   std::string buf;
+  inner_string is(buf);
   buf.reserve(buf_size + sizeof(uint32_t));
+  is.append(reinterpret_cast<const char *>(&sitobuf::magic_number),
+            sizeof(uint16_t));
+  is.append(reinterpret_cast<char *>(&argc), sizeof(uint16_t));
+  helper::__build_buf(is, args...);
+  return buf;
+}
+
+/**
+ * Build a sitobuf to user-defined memory area.
+ * The number of parameters cannot over 65535.
+ *
+ * @param buf a memory area structure.
+ * @param args... parameters to pack.
+ *
+ * @return Reference to this buf.
+ */
+template <typename... Args>
+__always_inline inner_string &build_buf(inner_string &buf, Args &&...args) {
+  size_t buf_size = helper::__build_size(args...);
+  if (buf_size > buf.capacity()) throw "buffer size is too small";
+  uint16_t argc = sizeof...(Args);
+  buf.resize(0);
   buf.append(reinterpret_cast<const char *>(&sitobuf::magic_number),
              sizeof(uint16_t));
   buf.append(reinterpret_cast<char *>(&argc), sizeof(uint16_t));
@@ -420,14 +543,15 @@ std::string __always_inline build_buf(Args &&...args) {
  * parameter types must be same as calling sitobuf::build_buf()
  */
 template <typename... Args>
-void __always_inline parse_buf(std::string &buf, Args *...args) {
-  if (*reinterpret_cast<const uint16_t *>(buf.data()) != sitobuf::magic_number)
+__always_inline void parse_buf(inner_string &buf, Args *...args) {
+  inner_string is(buf);
+  if (*reinterpret_cast<const uint16_t *>(is.data()) != sitobuf::magic_number)
     throw "parse error: Unrecognized sitobuf";
   uint16_t buf_argc =
-      *reinterpret_cast<const uint16_t *>(buf.data() + sizeof(uint16_t));
+      *reinterpret_cast<const uint16_t *>(is.data() + sizeof(uint16_t));
   if (buf_argc != sizeof...(Args))
     throw "parse error: Incorrect number of parameters";
-  helper::__parse_buf(buf, sizeof(uint16_t) + sizeof(uint16_t), args...);
+  helper::__parse_buf(is, sizeof(uint16_t) + sizeof(uint16_t), args...);
 }
 
 /**
@@ -439,7 +563,7 @@ void __always_inline parse_buf(std::string &buf, Args *...args) {
  *
  * @return The result store in buf1
  */
-void __always_inline concat_buf(std::string &buf1, std::string &buf2) {
+__always_inline void concat_buf(inner_string &buf1, inner_string &buf2) {
   if (*reinterpret_cast<const uint16_t *>(buf1.data()) !=
           sitobuf::magic_number ||
       *reinterpret_cast<const uint16_t *>(buf2.data()) != sitobuf::magic_number)
@@ -464,7 +588,7 @@ void __always_inline concat_buf(std::string &buf1, std::string &buf2) {
  * @return The result store in buf
  */
 template <typename... Args>
-void __always_inline append_buf(std::string &buf, Args &&...args) {
+__always_inline void append_buf(inner_string &buf, Args &&...args) {
   uint16_t new_buf_argc = sizeof...(Args) + *reinterpret_cast<const uint16_t *>(
                                                 buf.data() + sizeof(uint16_t));
   if (new_buf_argc < sizeof...(Args)) throw "append error: Too much arguments";
